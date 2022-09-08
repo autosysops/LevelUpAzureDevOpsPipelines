@@ -1,0 +1,60 @@
+trigger:
+  - none
+  
+pool:
+  name: <YOUR AGENT POOL>
+
+stages:
+- stage: Test
+  jobs:
+  - deployment: JobEnvTest
+    displayName: No Approval on Environment
+    environment: 'Test'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: PowerShell@2
+            inputs:
+              targetType: 'inline'
+              script: |
+                Write-Host "Hello World"
+- stage: DeployProd
+  dependsOn:
+  - Test
+  jobs:
+  - deployment: JobEnvProd
+    displayName: Approval via Environment
+    environment: 'Prod'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: PowerShell@2
+            inputs:
+              targetType: 'inline'
+              script: |
+                Write-Host "Hello World"
+- stage: DeployIntervention
+  dependsOn:
+  - Test
+  jobs:
+  - job: JobManualIntervention
+    displayName: Approvial via Manual Intervention
+    pool: server
+    steps:
+    - task: ManualValidation@0
+      timeoutInMinutes: 5
+      inputs:
+        notifyUsers: '<EMAIL>'
+        instructions: 'Please approve so the demo continues'
+  - job: ExecuteActionAfterMI
+    displayName: Execute Actions after approval
+    dependsOn:
+    - JobManualIntervention
+    steps:
+    - task: PowerShell@2
+      inputs:
+        targetType: 'inline'
+        script: |
+          Write-Host "Hello World"

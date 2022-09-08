@@ -1,0 +1,121 @@
+trigger:
+- none
+
+parameters:
+- name: rgName
+  displayName: Name of resourcegroup?
+  type: string
+  default: "test-rg-pipeline"
+- name: useLastKnownGoodConfiguration
+  displayName: Use last known stable configuration (if false the most recent commit will be used)?
+  type: boolean
+  default: false
+
+variables:
+  - group: "Deployment Variables"
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+- stage: Build
+  jobs:
+  - job: Build
+    displayName: Create Artifact
+    steps:
+      - checkout: self
+        displayName: Clone the repository
+        fetchDepth: 100
+        persistCredentials: true
+      - task: PowerShell@2
+        displayName: Switch to last known good configuration
+        inputs:
+          targetType: 'inline'
+          script: |
+            git reset --hard $(LastKnownGoodConfiguration)
+        condition: ${{ parameters.useLastKnownGoodConfiguration }}
+      
+      - task: PublishBuildArtifacts@1
+        inputs:
+          PathtoPublish: "$(Build.SourcesDirectory)"
+          ArtifactName: "drop"
+          publishLocation: "Container"
+      - task: PowerShell@2
+        name: StoreCommit
+        displayName: Store commit
+        inputs:
+          targetType: 'inline'
+          script: |
+            Write-Host "##vso[task.setvariable variable=commit;isOutput=true]$(git log -n 1 --pretty=format:%H)"
+          
+- stage: Deploy
+  displayName: Deploy
+  jobs:
+  - deployment: Deploy
+    displayName: Deploy resources
+    environment: Test
+    variables:
+      - name: commit
+        value: $[ stageDependencies.Build.Build.outputs['StoreCommit.commit'] ]
+    strategy:                  
+      runOnce:
+        preDeploy:
+          steps:
+          - download: current
+            artifact: drop
+          - task: AzureResourceManagerTemplateDeployment@3
+            displayName: Deploy Resource Group
+            inputs:
+              deploymentScope: 'Subscription'
+              azureResourceManagerConnection: '<YOUR SERIVICE CONNECTION>'
+              subscriptionId: '<YOUR SUBSCRIPTIONID>'
+              location: 'West Europe'
+              templateLocation: 'Linked artifact'
+              csmFile: '$(Pipeline.Workspace)/drop/CreateRG/template.json'
+              csmParametersFile: '$(Pipeline.Workspace)/drop/CreateRG/parameters.json'
+              overrideParameters: '-rgName ${{ parameters.rgName }}'
+              deploymentMode: 'Incremental'
+        deploy:
+          steps:
+          - task: AzureResourceManagerTemplateDeployment@3
+            inputs:
+              deploymentScope: 'Resource Group'
+              azureResourceManagerConnection: '<YOUR SERIVICE CONNECTION>'
+              subscriptionId: '<YOUR SUBSCRIPTIONID>'
+              action: 'Create Or Update Resource Group'
+              resourceGroupName: '${{ parameters.rgName }}'
+              location: 'West Europe'
+              templateLocation: 'Linked artifact'
+              csmFile: '$(Pipeline.Workspace)/drop/CreateVM/template.json'
+              csmParametersFile: '$(Pipeline.Workspace)/drop/CreateVM/parameters.json'
+              overrideParameters: '-adminPassword $(Password)'
+              deploymentMode: 'Incremental'
+        on:
+          success:
+            steps:
+            - task: AzureCLI@2
+              inputs:
+                azureSubscription: '<YOUR SERIVICE CONNECTION>'
+                scriptType: 'bash'
+                scriptLocation: 'inlineScript'
+                inlineScript: 'az keyvault secret set --vault-name ''<YOUR KEYVAULT NAME>'' --name ''LastKnownGoodConfiguration'' --value ''$(commit)'''
+          failure:
+            steps:
+            - task: TriggerBuild@4
+              inputs:
+                definitionIsInCurrentTeamProject: true
+                buildDefinition: '<YOUR PIPELINEID>'
+                queueBuildForUserThatTriggeredBuild: false
+                ignoreSslCertificateErrors: false
+                useSameSourceVersion: false
+                useCustomSourceVersion: false
+                useSameBranch: true
+                waitForQueuedBuildsToFinish: false
+                storeInEnvironmentVariable: false
+                templateParameters: 'useLastKnownGoodConfiguration: true'
+                authenticationMethod: 'OAuth Token'
+                enableBuildInQueueCondition: false
+                dependentOnSuccessfulBuildCondition: false
+                dependentOnFailedBuildCondition: false
+                checkbuildsoncurrentbranch: false
+                failTaskIfConditionsAreNotFulfilled: false

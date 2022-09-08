@@ -1,0 +1,24 @@
+trigger:
+  - none
+  
+pool:
+  name: <YOUR AGENT POOL>
+
+steps:
+- task: PowerShell@2
+  inputs:
+    targetType: 'inline'
+    script: |
+      try {
+        $count = [int] (Get-Content count.dat)
+      }
+      catch {
+        $count = 0
+        Write-Host "no file found"
+      }
+      Write-Host "Retry $count"
+      $count + 1 | Out-File count.dat
+      if($count -lt 3){
+      throw "not enough retries"
+      }
+  retryCountOnTaskFailure: 10
