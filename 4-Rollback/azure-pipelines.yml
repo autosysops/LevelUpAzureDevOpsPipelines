@@ -112,7 +112,7 @@ stages:
                 useSameBranch: true
                 waitForQueuedBuildsToFinish: false
                 storeInEnvironmentVariable: false
-                templateParameters: 'useLastKnownGoodConfiguration: true'
+                templateParameters: 'useLastKnownGoodConfiguration: true, rgName: ${{ parameters.rgName }}'
                 authenticationMethod: 'OAuth Token'
                 enableBuildInQueueCondition: false
                 dependentOnSuccessfulBuildCondition: false
